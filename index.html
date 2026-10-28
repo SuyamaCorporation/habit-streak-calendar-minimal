@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>習慣 ストリーク カレンダー</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<div class="max-w-3xl mx-auto p-4">
+  <h1 class="text-2xl font-bold text-gray-800 mb-4">習慣 ストリーク カレンダー</h1>
+
+  <!-- 習慣タブ + 追加 -->
+  <div class="bg-white rounded-xl shadow-md p-4 mb-4">
+    <div class="flex flex-wrap gap-2 items-center mb-3">
+      <div id="habit-tabs" class="flex flex-wrap gap-2"></div>
+      <button onclick="openAddModal()" aria-label="習慣を追加"
+        class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm font-medium hover:bg-blue-200 flex items-center gap-1">
+        <span class="text-lg leading-none">+</span> 習慣を追加
+      </button>
+    </div>
+    <!-- ストリーク表示 -->
+    <div id="streak-display" class="flex gap-4 flex-wrap"></div>
+  </div>
+
+  <!-- カレンダー -->
+  <div class="bg-white rounded-xl shadow-md p-4 mb-4">
+    <div class="flex justify-between items-center mb-4">
+      <button onclick="prevMonth()" aria-label="前月"
+        class="p-2 rounded-full hover:bg-gray-100 text-gray-600">
+        ◀
+      </button>
+      <h2 id="month-label" class="text-lg font-bold text-gray-800"></h2>
+      <button onclick="nextMonth()" aria-label="翌月"
+        class="p-2 rounded-full hover:bg-gray-100 text-gray-600">
+        ▶
+      </button>
+    </div>
+    <div class="grid grid-cols-7 gap-1 mb-2">
+      <div class="text-center text-xs font-medium text-red-500 py-1">日</div>
+      <div class="text-center text-xs font-medium text-gray-500 py-1">月</div>
+      <div class="text-center text-xs font-medium text-gray-500 py-1">火</div>
+      <div class="text-center text-xs font-medium text-gray-500 py-1">水</div>
+      <div class="text-center text-xs font-medium text-gray-500 py-1">木</div>
+      <div class="text-center text-xs font-medium text-gray-500 py-1">金</div>
+      <div class="text-center text-xs font-medium text-blue-500 py-1">土</div>
+    </div>
+    <div id="calendar-grid" class="grid grid-cols-7 gap-1"></div>
+  </div>
+
+  <!-- 月次達成率 -->
+  <div id="monthly-stats" class="bg-white rounded-xl shadow-md p-4 mb-4 hidden">
+    <h2 class="text-sm font-semibold text-gray-600 uppercase mb-3">月次達成率</h2>
+    <div id="monthly-bar" class="flex items-center gap-3">
+      <div class="flex-1 bg-gray-100 rounded-full h-4">
+        <div id="monthly-progress" class="h-4 rounded-full transition-all" style="width:0%"></div>
+      </div>
+      <span id="monthly-pct" class="text-lg font-bold text-gray-800 min-w-[48px]">0%</span>
+    </div>
+    <div id="monthly-detail" class="text-xs text-gray-500 mt-1"></div>
+  </div>
+
+  <!-- 追加モーダル -->
+  <div id="add-modal" class="hidden fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+    <div class="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl mx-4">
+      <h3 class="text-lg font-bold text-gray-800 mb-4">習慣を追加</h3>
+      <div class="mb-4">
+        <label for="habit-name-input" class="block text-sm font-medium text-gray-700 mb-1">習慣名</label>
+        <input type="text" id="habit-name-input" maxlength="20"
+          class="w-full border border-gray-300 rounded-md p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          placeholder="例: 朝ランニング" aria-label="習慣名">
+      </div>
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">カラー</label>
+        <div id="color-picker" class="flex gap-2 flex-wrap"></div>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button onclick="closeAddModal()" aria-label="キャンセル"
+          class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-md">キャンセル</button>
+        <button onclick="addHabit()" aria-label="追加"
+          class="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium">追加</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+const STORAGE_KEY = 'habit_tracker_v1';
+const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
+let selectedColor = COLORS[0];
+let habits = [];
+let records = {};
+let currentHabitId = null;
+let viewYear = new Date().getFullYear();
+let viewMonth = new Date().getMonth();
+
+function load() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const d = JSON.parse(saved);
+      habits = d.habits || [];
+      records = d.records || {};
+    }
+  } catch(e) {}
+  if (habits.length > 0 && currentHabitId === null) {
+    currentHabitId = habits[0].id;
+  }
+}
+
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ habits, records }));
+}
+
+function openAddModal() {
+  document.getElementById('add-modal').classList.remove('hidden');
+  document.getElementById('habit-name-input').value = '';
+  selectedColor = COLORS[0];
+  renderColorPicker();
+}
+
+function closeAddModal() {
+  document.getElementById('add-modal').classList.add('hidden');
+}
+
+function renderColorPicker() {
+  const cp = document.getElementById('color-picker');
+  cp.innerHTML = '';
+  COLORS.forEach(c => {
+    const btn = document.createElement('button');
+    btn.style.backgroundColor = c;
+    btn.className = 'w-8 h-8 rounded-full border-2 transition-all ' +
+      (c === selectedColor ? 'border-gray-800 scale-110' : 'border-transparent');
+    btn.onclick = () => { selectedColor = c; renderColorPicker(); };
+    btn.setAttribute('aria-label', 'カラー ' + c);
+    cp.appendChild(btn);
+  });
+}
+
+function addHabit() {
+  const name = document.getElementById('habit-name-input').value.trim();
+  if (!name) { alert('習慣名を入力してください'); return; }
+  const id = 'h_' + Date.now();
+  habits.push({ id, name, color: selectedColor });
+  if (!records[id]) records[id] = {};
+  currentHabitId = id;
+  save();
+  closeAddModal();
+  render();
+}
+
+function switchHabit(id) {
+  currentHabitId = id;
+  render();
+}
+
+function toggleDay(dateStr) {
+  if (!currentHabitId) return;
+  if (!records[currentHabitId]) records[currentHabitId] = {};
+  records[currentHabitId][dateStr] = !records[currentHabitId][dateStr];
+  save();
+  render();
+}
+
+function prevMonth() {
+  viewMonth--;
+  if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+  render();
+}
+
+function nextMonth() {
+  viewMonth++;
+  if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+  render();
+}
+
+function getStreak(habitId) {
+  const recs = records[habitId] || {};
+  const today = new Date();
+  let cur = 0, best = 0, count = 0;
+  const d = new Date(today);
+  while (true) {
+    const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    if (recs[key]) { count++; } else if (count > 0) break;
+    else if (d <= today) { }
+    d.setDate(d.getDate() - 1);
+    if (d.getFullYear() < today.getFullYear() - 2) break;
+  }
+  cur = count;
+
+  // best streak
+  const allDates = Object.keys(recs).filter(k => recs[k]).sort();
+  if (allDates.length === 0) return { cur: 0, best: 0 };
+  let streak = 1; best = 1;
+  for (let i = 1; i < allDates.length; i++) {
+    const prev = new Date(allDates[i-1]);
+    const curr = new Date(allDates[i]);
+    const diff = (curr - prev) / 86400000;
+    if (diff === 1) { streak++; best = Math.max(best, streak); }
+    else { streak = 1; }
+  }
+  return { cur, best };
+}
+
+function render() {
+  renderTabs();
+  renderCalendar();
+  renderStreak();
+  renderMonthlyStats();
+}
+
+function renderTabs() {
+  const container = document.getElementById('habit-tabs');
+  container.innerHTML = '';
+  habits.forEach(h => {
+    const btn = document.createElement('button');
+    btn.setAttribute('aria-label', h.name + 'タブ');
+    btn.className = 'px-3 py-1.5 rounded-full text-sm font-medium transition-colors ' +
+      (h.id === currentHabitId ? 'text-white shadow' : 'text-gray-600 bg-gray-100 hover:bg-gray-200');
+    if (h.id === currentHabitId) btn.style.backgroundColor = h.color;
+    btn.textContent = h.name;
+    btn.onclick = () => switchHabit(h.id);
+    container.appendChild(btn);
+  });
+}
+
+function renderStreak() {
+  const el = document.getElementById('streak-display');
+  el.innerHTML = '';
+  if (!currentHabitId) return;
+  const h = habits.find(h => h.id === currentHabitId);
+  if (!h) return;
+  const { cur, best } = getStreak(currentHabitId);
+  el.innerHTML =
+    '<div class="flex gap-6"><div class="text-center"><div class="text-2xl font-bold" style="color:' + h.color + '">' + cur + '</div><div class="text-xs text-gray-500">現在ストリーク</div></div>' +
+    '<div class="text-center"><div class="text-2xl font-bold text-gray-700">' + best + '</div><div class="text-xs text-gray-500">最長ストリーク</div></div></div>';
+}
+
+function renderCalendar() {
+  const label = document.getElementById('month-label');
+  label.textContent = viewYear + '年 ' + (viewMonth + 1) + '月';
+
+  const grid = document.getElementById('calendar-grid');
+  grid.innerHTML = '';
+
+  const h = currentHabitId ? habits.find(x => x.id === currentHabitId) : null;
+  const recs = (currentHabitId && records[currentHabitId]) ? records[currentHabitId] : {};
+
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const today = new Date();
+
+  for (let i = 0; i < firstDay; i++) {
+    const blank = document.createElement('div');
+    grid.appendChild(blank);
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = viewYear + '-' + String(viewMonth + 1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    const done = !!recs[dateStr];
+    const isToday = today.getFullYear() === viewYear && today.getMonth() === viewMonth && today.getDate() === d;
+    const isFuture = new Date(viewYear, viewMonth, d) > today;
+
+    const cell = document.createElement('button');
+    cell.setAttribute('aria-label', dateStr + (done ? ' 達成済み' : ' 未達成'));
+    cell.className = 'aspect-square rounded-lg text-sm font-medium transition-all relative ' +
+      (isToday ? 'ring-2 ring-offset-1 ' : '') +
+      (done ? 'text-white shadow-sm' : isFuture ? 'text-gray-300 cursor-default' : 'text-gray-600 hover:bg-gray-100 bg-gray-50');
+    if (done && h) cell.style.backgroundColor = h.color;
+    if (isToday && h) cell.style.ringColor = h.color;
+    cell.textContent = d;
+    if (!isFuture) cell.onclick = () => toggleDay(dateStr);
+    grid.appendChild(cell);
+  }
+}
+
+function renderMonthlyStats() {
+  const el = document.getElementById('monthly-stats');
+  if (!currentHabitId) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const h = habits.find(x => x.id === currentHabitId);
+  const recs = records[currentHabitId] || {};
+  const today = new Date();
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const lastDay = (viewYear === today.getFullYear() && viewMonth === today.getMonth())
+    ? today.getDate() : daysInMonth;
+  let achieved = 0;
+  for (let d = 1; d <= lastDay; d++) {
+    const key = viewYear + '-' + String(viewMonth+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
+    if (recs[key]) achieved++;
+  }
+  const pct = lastDay > 0 ? Math.round(achieved / lastDay * 100) : 0;
+  const bar = document.getElementById('monthly-progress');
+  bar.style.width = pct + '%';
+  if (h) bar.style.backgroundColor = h.color;
+  document.getElementById('monthly-pct').textContent = pct + '%';
+  document.getElementById('monthly-detail').textContent = lastDay + '日中 ' + achieved + '日達成';
+}
+
+renderColorPicker();
+load();
+if (habits.length === 0) {
+  habits.push({ id: 'h_default', name: '毎日の習慣', color: COLORS[0] });
+  records['h_default'] = {};
+  currentHabitId = 'h_default';
+  save();
+}
+render();
+</script>
+</body>
+</html>
